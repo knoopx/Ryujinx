@@ -208,6 +208,14 @@ namespace Ryujinx.Ava
 
             _gpuCancellationTokenSource = new CancellationTokenSource();
             _gpuDoneEvent = new ManualResetEvent(false);
+
+
+            _gamepadInterfaces = new List<IGamepad>();
+
+            _inputManager.GamepadDriver.OnGamepadConnected += GamepadConnected;
+            _inputManager.GamepadDriver.OnGamepadDisconnected += GamepadDisconnected;
+
+            RefreshGamepads();
         }
 
         private void TopLevel_PointerEnteredOrMoved(object sender, PointerEventArgs e)
@@ -1096,11 +1104,56 @@ namespace Ryujinx.Ava
             }
         }
 
+        private readonly List<IGamepad> _gamepadInterfaces;
+        private int _gamepadsChanged;
+
+        private void GamepadConnected(string id)
+        {
+            Interlocked.Exchange(ref _gamepadsChanged, 1);
+        }
+
+        private void GamepadDisconnected(string id)
+        {
+            Interlocked.Exchange(ref _gamepadsChanged, 1);
+        }
+
+        private void RefreshGamepads()
+        {
+            _gamepadInterfaces.Clear();
+
+            foreach (string id in _inputManager.GamepadDriver.GamepadsIds)
+            {
+                _gamepadInterfaces.Add(_inputManager.GamepadDriver.GetGamepad(id));
+            }
+        }
+
+        private bool ButtonPressedOnAnyGamepad(GamepadButtonInputId button)
+        {
+            foreach (IGamepad gamepad in _gamepadInterfaces)
+            {
+                if (gamepad.IsPressed(button))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         private bool UpdateFrame()
         {
             if (!_isActive)
             {
                 return false;
+            }
+
+            if (Interlocked.Exchange(ref _gamepadsChanged, 0) == 1)
+            {
+                RefreshGamepads();
+            }
+
+            if (ButtonPressedOnAnyGamepad(GamepadButtonInputId.Guide))
+            {
+                Environment.Exit(0);
             }
 
             NpadManager.Update(ConfigurationState.Instance.Graphics.AspectRatio.Value.ToFloat());

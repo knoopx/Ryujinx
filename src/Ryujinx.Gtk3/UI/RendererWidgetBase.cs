@@ -15,6 +15,7 @@ using Ryujinx.UI.Common.Helper;
 using Ryujinx.UI.Widgets;
 using SkiaSharp;
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -119,6 +120,14 @@ namespace Ryujinx.UI
             ConfigurationState.Instance.Graphics.AntiAliasing.Event += UpdateAnriAliasing;
             ConfigurationState.Instance.Graphics.ScalingFilter.Event += UpdateScalingFilter;
             ConfigurationState.Instance.Graphics.ScalingFilterLevel.Event += UpdateScalingFilterLevel;
+
+
+            _gamepadInterfaces = new List<IGamepad>();
+
+            _inputManager.GamepadDriver.OnGamepadConnected += GamepadConnected;
+            _inputManager.GamepadDriver.OnGamepadDisconnected += GamepadDisconnected;
+
+            RefreshGamepads();
         }
 
         private void UpdateScalingFilterLevel(object sender, ReactiveEventArgs<int> e)
@@ -619,6 +628,42 @@ namespace Ryujinx.UI
             _exitEvent.Set();
         }
 
+        private readonly List<IGamepad> _gamepadInterfaces;
+        private int _gamepadsChanged;
+
+
+        private void GamepadConnected(string id)
+        {
+            Interlocked.Exchange(ref _gamepadsChanged, 1);
+        }
+
+        private void GamepadDisconnected(string id)
+        {
+            Interlocked.Exchange(ref _gamepadsChanged, 1);
+        }
+
+        private void RefreshGamepads()
+        {
+            _gamepadInterfaces.Clear();
+
+            foreach (string id in _inputManager.GamepadDriver.GamepadsIds)
+            {
+                _gamepadInterfaces.Add(_inputManager.GamepadDriver.GetGamepad(id));
+            }
+        }
+
+        private bool ButtonPressedOnAnyGamepad(GamepadButtonInputId button)
+        {
+            foreach (IGamepad gamepad in _gamepadInterfaces)
+            {
+                if (gamepad.IsPressed(button))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         private bool UpdateFrame()
         {
             if (!_isActive)
@@ -629,6 +674,17 @@ namespace Ryujinx.UI
             if (_isStopped)
             {
                 return false;
+            }
+
+            if (Interlocked.Exchange(ref _gamepadsChanged, 0) == 1)
+            {
+                RefreshGamepads();
+            }
+
+
+            if (ButtonPressedOnAnyGamepad(GamepadButtonInputId.Guide))
+            {
+                Environment.Exit(0);
             }
 
             if ((Toplevel as MainWindow).IsFocused)
